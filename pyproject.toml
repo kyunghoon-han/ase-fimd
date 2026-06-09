@@ -1,0 +1,91 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ase-fimd"
+version = "0.1.2"
+description = "Fourier-Integrator Molecular Dynamics workflows for ASE calculators"
+readme = {file = "README.md", content-type = "text/markdown"}
+requires-python = ">=3.10"
+license = "MIT"
+authors = [
+  {name = "Kyunghoon Han", email = "kyunghoon.h@gmail.com"},
+]
+keywords = [
+  "molecular dynamics",
+  "ASE",
+  "Fourier integrator",
+  "vibrational dynamics",
+  "normal modes",
+  "simulation",
+]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Science/Research",
+  "Intended Audience :: Developers",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Scientific/Engineering :: Chemistry",
+  "Topic :: Scientific/Engineering :: Physics",
+]
+dependencies = [
+  "numpy>=1.22",
+  "ase>=3.22",
+]
+
+[project.optional-dependencies]
+dev = [
+  "build>=1.2",
+  "twine>=5",
+  "pytest>=7",
+  "ruff>=0.6",
+]
+tblite = ["tblite>=0.4"]
+xtb = ["xtb"]
+mace = ["mace-torch"]
+# SO3LR itself requires Python >= 3.12 (enforced by its own metadata).
+# Install this extra in a 3.12+ environment, e.g.:
+#   conda create -n asefimd312 python=3.12 && conda activate asefimd312
+so3lr = [
+  "jax==0.5.3; python_version >= '3.12'",
+  "so3lr @ git+https://github.com/general-molecular-simulations/so3lr ; python_version >= '3.12'",
+]
+amber = ["parmed"]
+
+[project.scripts]
+fimd = "fimd.cli:main"
+
+[tool.setuptools]
+py-modules = ["ase_fimd"]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["fimd*"]
+exclude = ["tests*"]
+
+[tool.setuptools.package-data]
+fimd = ["py.typed"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+# UP (pyupgrade) is intentionally excluded: it rewrites typing.Optional/List
+# and "X | None" in ways that may break older Python; keep typing.Optional etc.
+select = ["E", "F", "I", "B"]
+ignore = ["E501", "B028"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::UserWarning",
+]
