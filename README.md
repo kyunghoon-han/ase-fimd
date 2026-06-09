@@ -496,7 +496,6 @@ installed.
 If you use FIMD in your work, please cite the method paper:
 
 > K. Han, A. Tkatchenko, and J. T. Berryman,
-> University of Luxembourg,
 > *Symplectic and Thermodynamically Consistent Molecular Dynamics in the
 > Frequency Domain* (Fourier-Integrator Molecular Dynamics, FIMD).
 > Manuscript under review at *Physical Review Letters* (2026).
