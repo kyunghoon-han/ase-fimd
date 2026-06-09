@@ -38,7 +38,7 @@ The method is built on a symmetric kick-drift-kick (Strang) splitting of the ban
 Hamiltonian into an exactly solvable quadratic reference flow and a residual-force
 kick, giving a **second-order symplectic** update.
 
-> This package is the reference ASE implementation accompanying the FIMD method.
+> This package is an open-source ASE implementation of the FIMD method.
 > The conserved quantity is the **band Hamiltonian**
 > `H_B = 1/2 sum_{nu in B}(pi_nu^2 + omega_nu^2 q_nu^2) + dV(r_B)`,
 > **not** the full Cartesian potential energy &mdash; see [Outputs](#outputs).
@@ -497,7 +497,10 @@ If you use FIMD in your work, please cite the method paper:
 
 > K. Han, A. Tkatchenko, and J. T. Berryman,
 > *Symplectic and Thermodynamically Consistent Molecular Dynamics in the
-> Frequency Domain* (Fourier Integrator Molecular Dynamics, FIMD).
+> Frequency Domain* (Fourier-Integrator Molecular Dynamics, FIMD).
+> Manuscript under review at *Physical Review Letters* (2026).
+
+Full citation details will be updated here once the paper is published.
 
 ---
 
