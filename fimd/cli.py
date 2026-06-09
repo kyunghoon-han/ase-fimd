@@ -5,8 +5,8 @@ from __future__ import annotations
 import argparse
 
 from .calculators import available_calculators, parse_calculator_kwargs
-from .workflow import run_fimd_from_xyz
 from .protocols import run_multiband_fimd_from_xyz
+from .workflow import run_fimd_from_xyz
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -87,7 +87,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_bands.add_argument("--seed", type=int, default=12345)
     p_bands.add_argument("--quiet", action="store_true")
 
-    p_list = sub.add_parser("calculators", help="list calculator shortcuts")
+    sub.add_parser("calculators", help="list calculator shortcuts")
     return parser
 
 

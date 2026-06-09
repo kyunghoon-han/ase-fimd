@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from typing import Any, Dict, Optional, Tuple, Union
 
 import numpy as np
-
 from ase import Atoms, units
 from ase.io import read, write
 
@@ -321,7 +320,7 @@ def run_fimd_from_xyz(
         masses = atoms_fimd.get_masses()
         want_ext = (fmt == "extxyz")
         frames = []
-        for t, E, Eb, pos, vel in zip(times, energies, band_energies, positions, velocities):
+        for t, E, Eb, pos, vel in zip(times, energies, band_energies, positions, velocities, strict=False):
             frame = Atoms(symbols=symbols, positions=pos)
             frame.info["time_fs"] = float(t)
             frame.info["energy_eV"] = float(E)

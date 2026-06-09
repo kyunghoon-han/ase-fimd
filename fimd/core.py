@@ -244,7 +244,7 @@ def _load_npz_trajectory(
         masses = np.asarray(masses, dtype=dtype)
 
     trajectory: List[Atoms] = []
-    for pos, vel in zip(positions, velocities_ang_fs):
+    for pos, vel in zip(positions, velocities_ang_fs, strict=False):
         atoms = Atoms(symbols=list(symbols), positions=np.asarray(pos, dtype=dtype))
         if masses is not None:
             atoms.set_masses(masses)
@@ -273,7 +273,7 @@ def _load_npy_trajectory(
     masses_arr = None if masses is None else np.asarray(masses, dtype=dtype)
 
     trajectory: List[Atoms] = []
-    for pos, vel in zip(positions, velocities_ang_fs):
+    for pos, vel in zip(positions, velocities_ang_fs, strict=False):
         atoms = Atoms(symbols=list(symbols), positions=np.asarray(pos, dtype=dtype))
         if masses_arr is not None:
             atoms.set_masses(masses_arr)
@@ -326,7 +326,7 @@ def ensure_velocities(
         print("  Warning: no ASE velocities found; estimating from positions.")
     positions = np.asarray([atoms.get_positions() for atoms in trajectory], dtype=dtype)
     velocities_ang_fs = estimate_velocities(positions, dt_fs=dt_fs, precision=dtype)
-    for atoms, vel in zip(trajectory, velocities_ang_fs):
+    for atoms, vel in zip(trajectory, velocities_ang_fs, strict=False):
         set_velocities_ang_per_fs(atoms, vel, dtype)
 
 
@@ -1421,7 +1421,9 @@ def _frequencies_from_velocity_spectra(
         if 0 < k < n_bins - 1 and df_cm1 > 0.0:
             y0, y1, y2 = spec[k - 1, m], spec[k, m], spec[k + 1, m]
             with np.errstate(divide="ignore", invalid="ignore"):
-                l0 = np.log(y0 + 1e-30); l1 = np.log(y1 + 1e-30); l2 = np.log(y2 + 1e-30)
+                l0 = np.log(y0 + 1e-30)
+                l1 = np.log(y1 + 1e-30)
+                l2 = np.log(y2 + 1e-30)
                 denom = (l0 - 2.0 * l1 + l2)
                 if abs(denom) > 1e-20:
                     delta = 0.5 * (l0 - l2) / denom  # in [-1, 1] bins

@@ -13,7 +13,7 @@ import json
 import os
 import shutil
 from dataclasses import asdict, dataclass, field
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 from ase.io import read, write
 
@@ -21,7 +21,6 @@ from .calculators import get_calculator
 from .core import FloatDTypeLike
 from .md import minimise_atoms, run_reference_md
 from .workflow import FIMDRunResult, run_fimd_from_xyz
-
 
 BandLike = Tuple[float, float]
 

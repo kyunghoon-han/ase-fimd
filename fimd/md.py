@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import os
-from typing import Any, List, Optional, Sequence
+from typing import Any, List, Optional
 
 import numpy as np
-
 from ase import Atoms, units
 from ase.io import write
 from ase.md.velocitydistribution import MaxwellBoltzmannDistribution, Stationary, ZeroRotation

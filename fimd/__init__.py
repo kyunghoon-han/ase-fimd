@@ -2,20 +2,19 @@
 
 __version__ = "0.1.2"
 
+from .calculators import available_calculators, get_calculator
 from .core import (
     FIMDBasis,
     FIMDynamics,
-    ase_velocity_to_ang_per_fs,
     ang_per_fs_to_ase_velocity,
+    ase_velocity_to_ang_per_fs,
     cm1_to_radfs,
-    radfs_to_cm1,
     load_trajectory,
+    radfs_to_cm1,
     resolve_precision,
     run_fimd_from_trajectory,
 )
-from .calculators import get_calculator, available_calculators
 from .md import minimise_atoms, run_reference_md
-from .workflow import FIMDRunResult, run_fimd_from_xyz
 from .protocols import (
     MultiBandFIMDResult,
     PreparedReference,
@@ -25,6 +24,7 @@ from .protocols import (
     run_fimd_bands_from_prepared_reference,
     run_multiband_fimd_from_xyz,
 )
+from .workflow import FIMDRunResult, run_fimd_from_xyz
 
 __all__ = [
     "FIMDBasis",
