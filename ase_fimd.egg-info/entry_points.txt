@@ -1,0 +1,2 @@
+[console_scripts]
+fimd = fimd.cli:main

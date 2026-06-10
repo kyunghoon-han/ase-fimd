@@ -1,3 +1,42 @@
+Metadata-Version: 2.4
+Name: ase-fimd
+Version: 0.1.2
+Summary: Fourier-Integrator Molecular Dynamics workflows for ASE calculators
+Author-email: Kyunghoon Han <kyunghoon.h@gmail.com>
+License-Expression: MIT
+Keywords: molecular dynamics,ASE,Fourier integrator,vibrational dynamics,normal modes,simulation
+Classifier: Development Status :: 3 - Alpha
+Classifier: Intended Audience :: Science/Research
+Classifier: Intended Audience :: Developers
+Classifier: Operating System :: OS Independent
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Programming Language :: Python :: 3.11
+Classifier: Programming Language :: Python :: 3.12
+Classifier: Programming Language :: Python :: 3.13
+Classifier: Topic :: Scientific/Engineering :: Chemistry
+Classifier: Topic :: Scientific/Engineering :: Physics
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+Requires-Dist: numpy>=1.22
+Requires-Dist: ase>=3.22
+Provides-Extra: dev
+Requires-Dist: build>=1.2; extra == "dev"
+Requires-Dist: twine>=5; extra == "dev"
+Requires-Dist: pytest>=7; extra == "dev"
+Requires-Dist: ruff>=0.6; extra == "dev"
+Provides-Extra: tblite
+Requires-Dist: tblite>=0.4; extra == "tblite"
+Provides-Extra: xtb
+Requires-Dist: xtb; extra == "xtb"
+Provides-Extra: mace
+Requires-Dist: mace-torch; extra == "mace"
+Provides-Extra: so3lr
+Requires-Dist: jax==0.5.3; python_version >= "3.12" and extra == "so3lr"
+Requires-Dist: so3lr @ git+https://github.com/general-molecular-simulations/so3lr ; python_version >= "3.12" and extra == "so3lr"
+Provides-Extra: amber
+Requires-Dist: parmed; extra == "amber"
+
 <div align="center">
   <img src="docs/logo.png" alt="ase-fimd logo" width="180"/>
   <h1>ase-fimd</h1>
@@ -63,7 +102,6 @@ kick, giving a **second-order symplectic** update.
   - [Vibrational density of states (VDOS)](#vibrational-density-of-states-vdos)
   - [Diagnosing a problematic run](#diagnosing-a-problematic-run)
 - [Choosing a proper test system](#choosing-a-proper-test-system)
-- [Use as an ASE-native integrator](#use-as-an-ase-native-integrator)
 - [Python API](#python-api)
 - [Tips \& troubleshooting](#tips--troubleshooting)
 - [Development \& testing](#development--testing)
@@ -409,43 +447,6 @@ write("h2.xyz", morse_diatomic())         # H2 at r0        -> morse
 | `emt` | Metallic cluster | `emt_cluster()` |
 | `lj` | Noble-gas cluster | `lj_cluster()` |
 | `morse` | Diatomic / small cluster | `morse_diatomic()`, `morse_cluster()` |
-
----
-
-## Use as an ASE-native integrator
-
-`FIMDynamics` subclasses ASE's `MolecularDynamics`, so it plugs into existing ASE
-workflows exactly like `ase.md.Langevin` or `VelocityVerlet` — the same
-`run` / `attach` / `logfile` / `trajectory` interface. The only extra argument is
-the modal `basis`, which is intrinsic to the method (FIMD propagates a chosen
-vibrational band in a modal frame, so it needs the modal basis `W`, `omega`, and a
-reference structure):
-
-```python
-from ase import units
-from ase.io import Trajectory
-from fimd.core import FIMDBasis, FIMDynamics
-
-# Build the modal basis once (from a Hessian or a reference trajectory):
-basis = FIMDBasis.from_trajectory(reference_frames, reference, calculator,
-                                  band=(0.0, 200.0))
-
-# Then drive it like any ASE integrator:
-md = FIMDynamics(
-    atoms,
-    basis,                  # the one FIMD-specific argument
-    2 * units.fs,           # timestep, ASE-style
-    temperature=300,        # omit (or None) for NVE; set a value (K) for an NVT band thermostat
-    friction=0.01,
-    logfile="run.log",
-)
-traj = Trajectory("run.traj", "w", atoms)
-md.attach(traj.write, interval=50)
-md.run(1000)
-```
-
-A complete, self-checking example lives in
-[`examples/ase_native_interface.py`](examples/ase_native_interface.py).
 
 ---
 
