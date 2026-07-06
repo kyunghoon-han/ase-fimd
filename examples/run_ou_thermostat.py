@@ -1,31 +1,95 @@
 #!/usr/bin/env python3
-"""Per-mode OU-thermostatted FIMD, reusing the PACKAGE's own pipeline.
-
-The lesson from many iterations: hand-building minimise -> thermalise -> MD ->
-basis reintroduces bugs the package already solves. `fimd_per_mode_study.py`
-works precisely because it delegates all of that to run_fimd_from_xyz. So this
-script does the same:
-
-  [A] call run_fimd_from_xyz (the package's validated pipeline) to build a
-      KNOWN-GOOD basis for the band -- minimise, thermalise, reference MD, FFT
-      mode selection, basis construction, all done by the package.
-  [B] reload that basis and run ONLY the NVT stage with OUFIMDynamics, which
-      adds a masked per-mode Ornstein-Uhlenbeck thermostat by WRAPPING the
-      package's own FIMDynamics.step() (parent step untouched; OU as half-kicks
-      before/after). core.py is not modified.
-
-Because we reuse the package basis, the dynamics are the package's dynamics --
-if the package's own NVE conserves (it does, per fimd_per_mode_study.py), so
-does this, and the only addition is the thermostat.
-
-Usage
+"""Per-mode Ornstein-Uhlenbeck thermostatting for band-limited FIMD.
+ 
+WHAT IT DOES
+------------
+FIMD propagates a chosen band of vibrational modes as decoupled harmonic
+oscillators in mass-weighted normal coordinates, with an anharmonic residual-
+force kick coupling them. This script adds a thermostat that couples a SELECTED
+SUBSET of those band modes to a heat bath at temperature T, while the remaining
+band modes evolve without a bath. Pick one mode with --modes to thermostat a
+single mode; omit --modes to thermostat the whole active band.
+ 
+ 
+HOW THE THERMOSTAT IS APPLIED (per band mode)
+---------------------------------------------
+In FIMD's mass-weighted normal coordinates each active mode nu is a UNIT-MASS
+oscillator with modal momentum p_nu. Its kinetic energy is 0.5 * p_nu^2 (in the
+code's modal units), so the canonical (Boltzmann) target at temperature T is a
+Gaussian momentum with
+ 
+    <p_nu^2> = kT_modal ,   kT_modal = k_B * T * EV_TO_AMU_A2_FS2 ,
+ 
+i.e. equipartition <0.5 p_nu^2> = kT/2. Note this target is the SAME for every
+mode -- no reduced mass and no frequency dependence -- because the mass-weighting
+has already made every modal oscillator unit-mass.
+ 
+The thermostat is an Ornstein-Uhlenbeck (stochastic velocity-rescale) update
+applied per mode:
+ 
+    p_nu  <-  sqrt(1 - a) * p_nu  +  sqrt(a) * xi_nu * sqrt(kT_modal)
+ 
+where xi_nu ~ N(0,1) is a fresh Gaussian draw and a in (0,1] is the coupling
+strength for that application. `a` is set from a relaxation time tau by
+a = 1 - exp(-dt/tau): small a (large tau) is a gentle bath, a -> 1 redraws the
+momentum entirely each step. The update relaxes p_nu toward the canonical
+distribution while preserving detailed balance.
+ 
+BAND SELECTION. The update is applied only where a boolean mask is True:
+ 
+    mask = band_mask  AND  (modes chosen by --modes)
+ 
+so only the selected, active modes are kicked; all other modes (inactive, or
+active-but-unselected) have their momentum passed through unchanged and keep
+evolving under the bare FIMD dynamics. This is what makes it *per-mode*: one
+True entry thermostats one mode while the rest of the band moves freely.
+ 
+SYMMETRIC PLACEMENT. To keep the integrator second-order and time-symmetric, the
+OU update is split around the conservative FIMD step: a HALF-strength kick is
+applied to p before FIMD's kick-drift-kick, and another HALF-strength kick after
+it (Strang splitting). The half strength is a_half = 1 - sqrt(1 - a). This is
+done by WRAPPING the package's FIMDynamics.step(): the parent step (the exact,
+validated harmonic drift + residual-force kick) runs untouched between the two
+OU half-kicks, and FIMD's own built-in thermostat is left off so the OU update
+is the only thermostat acting. The FIMD package (core.py) is not modified.
+ 
+ 
+HOW THE RUN IS SET UP
+---------------------
+The FIMD basis (active-mode selection, mode matrix, reference geometry and force)
+is produced by the package's own run_fimd_from_xyz, which minimises the geometry,
+thermalises, runs a reference MD, and selects the active modes from the FFT of
+the projected trajectory. The script uses the returned in-memory basis object and
+attaches the thermostatted integrator to it, so the dynamics are exactly the
+package's dynamics plus the per-mode OU thermostat.
+ 
+ 
+OUTPUT (in --out-dir)
+---------------------
+  nvt.traj, nvt.xyz          thermostatted trajectory (.xyz is clean 4-column,
+                             VMD-safe), sampled every 10 steps
+  nvt.log                    FIMD log
+  nvt_modal_energies.npz     per-mode kinetic energies, the thermostat mask,
+                             and the band mask
+  _pkg_reference/            the package pipeline's own outputs + basis
+ 
+Sanity: coupled modes should average to kT/2 (printed ratio ~1.0); free
+(unselected) modes should keep a physical per-mode energy (~1e-2 eV). Keep the
+--band floor off zero (e.g. 100 cm^-1): near-free modes below ~100 cm^-1
+destabilise the propagation.
+ 
+ 
+USAGE
 -----
   JAX_ENABLE_X64=1 python run_ou_thermostat.py \
       --xyz molecule.xyz --calculator so3lr --band 100 1000 \
       --modes 7 --T 300 --tau 25 --out-dir ou_run
-  # per-mode via --modes; omit to thermostat the whole active band.
-  # extra run_fimd_from_xyz options are forwarded (see --help of that function,
-  # printed at startup).
+ 
+  --band LO HI   active window (cm^-1); keep LO off zero.
+  --modes k ...  active-mode indices (frequency-sorted) to thermostat; omit for
+                 the whole active band.
+  --T T          temperature (K).   --tau FS  OU relaxation time (fs).
+  --dt FS        FIMD timestep.      --nvt-steps N  run length.
 """
 from __future__ import annotations
 import argparse, inspect, os, sys
@@ -73,28 +137,28 @@ class OUFIMDynamics(FIMDynamics):
         if thermostat_modes is None:
             self.thermostat_mask = self.band_mask.copy()
         else:
-            m = np.zeros_like(self.band_mask)
+            m                                          = np.zeros_like(self.band_mask)
             m[np.asarray(thermostat_modes, dtype=int)] = True
-            self.thermostat_mask = m & self.band_mask
-        self.ou_tau = float(tau)
-        self.rng = np.random.default_rng(seed)
+            self.thermostat_mask                       = m & self.band_mask
+        self.ou_tau     = float(tau)
+        self.rng        = np.random.default_rng(seed)
         return self
 
     def _ou(self, p, alpha):
         kT_modal = modal_kT(float(self.ou_temperature))
-        xi = self.rng.standard_normal(len(p)).astype(self.dtype)
-        sigma = np.sqrt(self.dtype.type(kT_modal)).astype(self.dtype)
-        a = self.dtype.type(alpha)
-        p_new = np.sqrt(self.dtype.type(1.0) - a) * p + np.sqrt(a) * (sigma * xi)
+        xi       = self.rng.standard_normal(len(p)).astype(self.dtype)
+        sigma    = np.sqrt(self.dtype.type(kT_modal)).astype(self.dtype)
+        a        = self.dtype.type(alpha)
+        p_new    = np.sqrt(self.dtype.type(1.0) - a) * p + np.sqrt(a) * (sigma * xi)
         return np.where(self.thermostat_mask, p_new, p).astype(self.dtype, copy=False)
 
     def step(self, forces=None):
         if getattr(self, "ou_temperature", None) is None:
             return super().step(forces=forces)
-        dt_fs = float(self.dt / units.fs)
-        ha = half_coupling(coupling_from_tau(dt_fs, self.ou_tau))
+        dt_fs  = float(self.dt / units.fs)
+        ha     = half_coupling(coupling_from_tau(dt_fs, self.ou_tau))
         self.p = self._ou(self.p, ha)
-        out = super().step(forces=forces)
+        out    = super().step(forces=forces)
         self.p = self._ou(self.p, ha)
         return out
 
@@ -113,7 +177,7 @@ def make_calc(kind):
 def call_pipeline(xyz, calculator, band, out_dir, extra):
     """Call run_fimd_from_xyz, mapping our intent onto its real signature."""
     params = set(inspect.signature(run_fimd_from_xyz).parameters)
-    cand = {
+    cand   = {
         "xyz": (["xyz_file", "input", "input_xyz", "xyz"], xyz),
         "calc": (["calculator", "calc"], calculator),
         "band": (["band"], tuple(band)),
@@ -185,10 +249,10 @@ def main():
     # [A] package builds a KNOWN-GOOD basis via its own validated pipeline (NVE)
     print("[A] package pipeline -> basis (minimise/thermalise/MD/FFT/basis) ...")
     ref_dir = os.path.join(a.out_dir, "_pkg_reference")
-    result = call_pipeline(a.xyz, make_calc(a.calculator), tuple(a.band), ref_dir, extra={})
-    basis = load_basis_from_result(result, ref_dir)
-    freq = np.asarray([radfs_to_cm1(w) for w in basis.omega])
-    active = np.where(basis.band_mask)[0]; active = active[np.argsort(freq[active])]
+    result  = call_pipeline(a.xyz, make_calc(a.calculator), tuple(a.band), ref_dir, extra={})
+    basis   = load_basis_from_result(result, ref_dir)
+    freq    = np.asarray([radfs_to_cm1(w) for w in basis.omega])
+    active  = np.where(basis.band_mask)[0]; active = active[np.argsort(freq[active])]
     print(f"    basis: {len(active)} active modes, "
           f"{freq[active].min():.0f}-{freq[active].max():.0f} cm^-1")
 
