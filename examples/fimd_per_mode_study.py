@@ -1,31 +1,75 @@
 #!/usr/bin/env python3
-"""Per-mode FIMD study built ON TOP of the ase-fimd package's OWN pipeline.
-
-This does NOT hand-roll the FIMD loop, the basis construction, or the thermostat.
-It calls the package's validated entry point (run_fimd_from_xyz) which performs
-the full minimise -> thermalise -> reference MD -> basis -> FIMD sequence, once
-per frequency window, so each run is a proper FIMD run with the package doing all
-the physics. We only orchestrate the per-window loop and collect results.
-
-KEY LESSONS baked in (from the ase-fimd README troubleshooting):
-  * max_initial_displacement MUST be set for low bands (e.g. 0.15) or soft-mode
-    initial amplitudes overlap atoms and the run blows up. This was the cause of
-    the earlier divergence -- it is OFF by default in the package by design.
-  * Conservation is judged by the BAND energy H_B (band_energies_eV), NOT the
-    full Cartesian potential, which is expected to drift.
-  * NVE test first (no fimd temperature), then NVT (with temperature).
-
-Because the exact keyword names of run_fimd_from_xyz can vary by package version,
-this script INTROSPECTS the function signature and maps our intent onto whatever
-parameters exist, printing the resolved call. If a required concept has no
-matching parameter, it STOPS and shows the real signature rather than guessing.
-
-Usage
+"""Per-mode Ornstein-Uhlenbeck thermostatting for band-limited FIMD.
+ 
+WHAT THIS SCRIPT DOES
+---------------------
+Runs an FIMD simulation in which a *selectable subset* of the active band modes
+is coupled to a heat bath at temperature T via an Ornstein-Uhlenbeck (stochastic
+velocity-rescale) thermostat, while every other mode in the band evolves freely.
+Setting --modes to a single index thermostats exactly one mode; omitting it
+thermostats the whole active band.
+ 
+It does NOT reimplement any FIMD physics. It runs in two stages:
+ 
+  [A] BASIS -- call the package's own run_fimd_from_xyz, which performs the full
+      validated pipeline: minimise the geometry, thermalise, run a reference MD,
+      select the active normal modes by FFT of the projected trajectory, and
+      build the FIMD basis. The pipeline returns a FIMDynamics object; we take
+      its live, in-memory basis (result.basis).
+ 
+      IMPORTANT: we use the in-memory basis object directly and never save/reload
+      it. FIMDBasis.save() does not persist the mode matrix W or the effective
+      Hessian K, so a reloaded basis has malformed W/K and the dynamics diverge
+      from the first step. Reusing the live object keeps W/K intact.
+ 
+  [B] THERMOSTATTED RUN -- attach OUFIMDynamics (a thin subclass of the package's
+      FIMDynamics) to that basis and run the NVT stage. OUFIMDynamics does not
+      copy or modify the integrator: it WRAPS the parent's validated step(),
+      applying a half-strength OU kick to the modal band momentum before the step
+      and another half after (a symmetric split), with the parent's own Langevin
+      thermostat disabled so the OU thermostat is the only one acting. The OU
+      target variance is matched to core.py's convention
+      (kT_modal = k_B * T * EV_TO_AMU_A2_FS2), so coupled modes equipartition to
+      kT/2. Only modes selected by --modes are kicked; the rest pass through
+      untouched. core.py itself is not modified.
+ 
+Because the dynamics ARE the package's dynamics on the package's own basis, if
+the package's NVE conserves the band energy (it does), so does this run in the
+absence of the thermostat; the thermostat is the only addition.
+ 
+OUTPUT (in --out-dir)
+---------------------
+  nvt.traj, nvt.xyz          thermostatted trajectory (.xyz is clean 4-column,
+                             VMD-safe), sampled every 10 steps
+  nvt.log                    FIMD log
+  nvt_modal_energies.npz     per-mode kinetic energies, the thermostat mask, and
+                             the band mask
+  _pkg_reference/            the package pipeline's own outputs + basis
+ 
+SANITY CHECKS on the first run
+------------------------------
+  * The basis stage should report active modes starting at your band floor with
+    NO imaginary modes; imaginary modes mean the reference is not a true minimum
+    (tighten the minimisation / fix the structure).
+  * Coupled modes should average to kT/2 (printed ratio near 1.0); free modes
+    should keep a physical per-mode energy (~1e-2 eV), not blow up. If free modes
+    explode, lower --dt and/or raise the --band floor off the near-free modes.
+ 
+USAGE
 -----
-  JAX_ENABLE_X64=1 python fimd_per_mode_study.py \
-      --xyz molecule.xyz --calculator so3lr \
-      --band 0 1000 --window 15 --T 300 --dt 0.5 \
-      --max-disp 0.15 --out-dir per_mode_study
+  JAX_ENABLE_X64=1 python run_ou_thermostat.py \
+      --xyz molecule.xyz --calculator so3lr --band 100 1000 \
+      --modes 7 --T 300 --tau 25 --out-dir ou_run
+ 
+  --band LO HI   active window (cm^-1); keep LO off zero (e.g. 100) -- near-free
+                 modes below ~100 cm^-1 destabilise the propagation.
+  --modes k ...  active-mode indices (into the frequency-sorted active list) to
+                 thermostat; omit to thermostat the whole active band.
+  --T T          temperature (K).   --tau FS  OU relaxation time (fs; smaller =
+                 stronger coupling).   --dt FS  FIMD timestep.   --nvt-steps N.
+ 
+  The real run_fimd_from_xyz signature is printed at startup; extra pipeline
+  arguments it accepts can be forwarded.
 """
 from __future__ import annotations
 import argparse, inspect, os, sys
