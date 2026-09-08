@@ -61,6 +61,7 @@ kick, giving a **second-order symplectic** update.
   - [`fimd_results.npz` keys](#fimd_resultsnpz-keys)
 - [Analysis scripts](#analysis-scripts)
   - [Vibrational density of states (VDOS)](#vibrational-density-of-states-vdos)
+  - [Hungarian trajectory permuter](#hungarian-trajectory-permuter)
   - [Force-displacement spring constants](#force-displacement-spring-constants)
   - [Diagnosing a problematic run](#diagnosing-a-problematic-run)
 - [Choosing a proper test system](#choosing-a-proper-test-system)
@@ -356,7 +357,7 @@ A `fimd run` writes the following into the output directory:
 
 ## Analysis scripts
 
-Three helper scripts live in [`scripts/`](scripts/).
+Four helper scripts live in [`scripts/`](scripts/).
 
 ### Vibrational density of states (VDOS)
 
@@ -378,6 +379,43 @@ python scripts/fimd_vdos.py out/fimd_results.npz --dump vdos.npz
 The script auto-detects the file type, reads velocities from either source, and
 prints the dominant peak positions. VDOS resolution scales with trajectory
 length (`df ~ 1/(N*dt)`) &mdash; use long runs with `--save-interval 1` for sharp peaks.
+
+### Hungarian trajectory permuter
+
+For liquid systems, a naive PCA basis is contaminated by diffusive motion: the
+lowest modes are translational drift rather than vibrations. `hungarian_permute.py`
+removes diffusion by re-labelling each MD frame via an optimal bijection between
+the liquid molecules and the sites of a reference lattice (e.g. the corresponding
+crystal structure).
+
+For each frame, the N molecule oxygens are assigned to N reference sites by
+minimising the total assignment cost over all N! permutations:
+
+```
+perm*(t) = argmin_perm  Σ_j  |r_O^liq_{perm(j)}(t) − r_O^ref_j|^p   (MIC, p=4)
+```
+
+The result is a "de-liquidised" trajectory in which molecule j always refers to
+whichever physical molecule is currently closest to reference site j.
+Residual displacements are purely cage-rattling and intramolecular vibrations —
+the same vibrational content as the corresponding crystal, sampled by the liquid.
+
+```bash
+python scripts/hungarian_permute.py \
+    --traj  coords.nc       \   # AMBER NetCDF coordinate trajectory
+    --frc   forces.nc       \   # AMBER NetCDF force trajectory (or "" to skip)
+    --ice   reference.rst7  \   # reference lattice (AMBER NetCDF rst7)
+    --out   permuted_coords.nc  \
+    --out-frc permuted_forces.nc
+```
+
+Frames are written to disk as they are produced — the full trajectory is never
+held in memory. Per-frame diagnostics (O-site RMSD, swap count) are printed
+throughout, and a nearest-neighbour sanity check is run on the first frame.
+
+The permuted coordinate and force trajectories share identical per-frame
+molecule assignments, so `compute_force_spring_constants.py` can be applied
+directly to them as the next step.
 
 ### Force-displacement spring constants
 
