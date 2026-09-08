@@ -61,6 +61,7 @@ kick, giving a **second-order symplectic** update.
   - [`fimd_results.npz` keys](#fimd_resultsnpz-keys)
 - [Analysis scripts](#analysis-scripts)
   - [Vibrational density of states (VDOS)](#vibrational-density-of-states-vdos)
+  - [Force-displacement spring constants](#force-displacement-spring-constants)
   - [Diagnosing a problematic run](#diagnosing-a-problematic-run)
 - [Choosing a proper test system](#choosing-a-proper-test-system)
 - [Use as an ASE-native integrator](#use-as-an-ase-native-integrator)
@@ -355,7 +356,7 @@ A `fimd run` writes the following into the output directory:
 
 ## Analysis scripts
 
-Two helper scripts live in [`scripts/`](scripts/).
+Three helper scripts live in [`scripts/`](scripts/).
 
 ### Vibrational density of states (VDOS)
 
@@ -377,6 +378,61 @@ python scripts/fimd_vdos.py out/fimd_results.npz --dump vdos.npz
 The script auto-detects the file type, reads velocities from either source, and
 prints the dominant peak positions. VDOS resolution scales with trajectory
 length (`df ~ 1/(N*dt)`) &mdash; use long runs with `--save-interval 1` for sharp peaks.
+
+### Force-displacement spring constants
+
+`from_trajectory_covariance` assigns per-mode frequencies ω by locating the
+peak of each mode's projected-velocity power spectrum. This works well for
+smooth trajectories. When the trajectory labels are **discontinuous** — for
+example, when molecules have been re-labelled frame-by-frame via an optimal
+assignment (Hungarian algorithm) to suppress diffusive motion — velocity
+differences across label-swap events contaminate the spectrum and bias ω.
+
+In that case, use the **force-displacement estimator** instead:
+
+```
+ω_k² = −⟨τ_k q_k⟩ / ⟨q_k²⟩
+
+  q_k(t) = W[:,k] · M^{+1/2} δr(t)   (modal displacement)
+  τ_k(t) = W[:,k] · M^{-1/2} F(t)    (modal force, eV/Å)
+```
+
+This estimator requires only per-frame quantities — forces need no time
+continuity — so it is artefact-free regardless of trajectory smoothness.
+For anharmonic systems it also gives a better ω than the covariance route
+(`ω² = k_BT/λ_k`), which measures PMF curvature rather than true force
+constant.
+
+`scripts/compute_force_spring_constants.py` implements this route:
+
+```bash
+python scripts/compute_force_spring_constants.py \
+    --coords permuted_coords.nc \
+    --forces permuted_forces.nc \
+    --band 100 2000 \
+    --out   my_basis.npz
+```
+
+The output file is directly loadable with `FIMDBasis.load()`:
+
+```python
+from fimd import FIMDBasis, FIMDynamics
+
+basis = FIMDBasis.load("my_basis.npz")
+dyn   = FIMDynamics(atoms, basis=basis, timestep_fs=0.5)
+dyn.run(20_000)
+```
+
+The script expects AMBER NetCDF coordinate and force trajectories, with
+forces in kcal/mol/Å. The mode shapes `W` are obtained from a windowed
+mass-weighted covariance PCA of the coordinate trajectory (identical to
+`from_trajectory_covariance` step 1); only the ω assignment step differs.
+
+| Basis route | Uses | Best when |
+|---|---|---|
+| `FIMDBasis.from_trajectory` | Numerical Hessian → exact normal modes | Near a well-defined minimum |
+| `FIMDBasis.from_trajectory_covariance` | PCA modes + velocity spectra → ω | Smooth MD trajectory |
+| `compute_force_spring_constants.py` | PCA modes + force-displacement → ω | Relabelled / non-smooth trajectory |
 
 ### Diagnosing a problematic run
 
@@ -482,10 +538,17 @@ Lower-level building blocks are exported too:
 ```python
 from fimd import FIMDBasis, FIMDynamics
 
-# Hessian-based basis ...
+# 1. Hessian-based basis: exact normal modes at a reference minimum
 basis = FIMDBasis.from_trajectory(trajectory, reference, calculator, band=(0, 500))
-# ... or a trajectory-derived (covariance) basis
+
+# 2. Covariance basis: PCA mode shapes + velocity power spectra for ω
+#    (works well for smooth MD trajectories)
 basis = FIMDBasis.from_trajectory_covariance(trajectory, reference, calculator, band=(0, 200))
+
+# 3. Force-displacement basis: PCA mode shapes + force-displacement estimator for ω
+#    (use when the trajectory has discontinuous labels, e.g. after molecule
+#    re-assignment via Hungarian algorithm — see scripts/compute_force_spring_constants.py)
+basis = FIMDBasis.load("my_basis.npz")  # built externally, load directly
 
 dyn = FIMDynamics(atoms, basis=basis, timestep_fs=0.5)
 dyn.run(1000)
