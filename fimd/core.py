@@ -1068,6 +1068,7 @@ class FIMDynamics(MolecularDynamics):
         use_basis_init: bool = True,
         append_trajectory: bool = False,
         precision: Optional[FloatDTypeLike] = None,
+        allow_imaginary: bool = False,
     ):
         dtype = resolve_precision(precision or basis.precision)
         if timestep is None:
@@ -1105,18 +1106,32 @@ class FIMDynamics(MolecularDynamics):
         self.reference_force = np.asarray(basis.reference_force, dtype=dtype).reshape(-1).copy()
         self.band_mask = np.asarray(basis.band_mask, dtype=bool).copy()
 
+        if allow_imaginary:
+            # Include modes with omega ≈ 0 that were excluded by the positive-
+            # curvature guard in _create_band_mask / from_trajectory_covariance.
+            # These have negative or zero effective force constants (saddle-point
+            # directions).  _harmonic_step already handles omega=0 via free drift
+            # (q += p*dt, p unchanged), so no propagator change is required.
+            zero_omega = np.abs(self.omega) < dtype.type(1.0e-12)
+            newly_active = zero_omega & ~self.band_mask
+            if np.any(newly_active):
+                self.band_mask = self.band_mask | newly_active
+                n_added = int(np.sum(newly_active))
+                print(f"FIMD: allow_imaginary — adding {n_added} zero-ω (imaginary) modes as free drift")
+
         # Guard: a zero-frequency mode left active would be propagated as a free
         # drift while still receiving the full residual-force kick, producing an
-        # unbounded, self-amplifying trajectory.  This should be impossible given
-        # the eigenvalue-based band selection, but a hand-built or legacy basis
-        # could violate it, so fail loudly rather than diverge silently.
+        # unbounded, self-amplifying trajectory.  Skip this check only when the
+        # caller has explicitly opted in via allow_imaginary=True.
         active_omega = self.omega[self.band_mask]
         if active_omega.size and np.any(np.abs(active_omega) < dtype.type(1.0e-12)):
-            raise ValueError(
-                "FIMDynamics received an active mode with omega == 0 (a rigid or "
-                "imaginary mode). Rebuild the basis so that band_mask excludes "
-                "non-positive-curvature modes by eigenvalue."
-            )
+            if not allow_imaginary:
+                raise ValueError(
+                    "FIMDynamics received an active mode with omega == 0 (a rigid or "
+                    "imaginary mode). Rebuild the basis so that band_mask excludes "
+                    "non-positive-curvature modes by eigenvalue, or pass "
+                    "allow_imaginary=True to treat them as zero-frequency free drift."
+                )
 
         if use_basis_init and (np.any(basis.q0 != 0) or np.any(basis.p0 != 0)):
             self.q = np.asarray(basis.q0, dtype=dtype).copy()
@@ -1138,7 +1153,8 @@ class FIMDynamics(MolecularDynamics):
 
         self.S = _compute_source_term(self.q, self.W, self.masses, self.r_ref, self.K, self.reference_force, self.atoms, self.band_mask, dtype)
         self.nsteps = 0
-        print(f"FIMD: ready with {basis.n_active_modes} active modes")
+        n_active_now = int(np.sum(self.band_mask))
+        print(f"FIMD: ready with {n_active_now} active modes")
         print(f"      Band: {basis.band[0]:.3f} - {basis.band[1]:.3f} cm^-1")
 
     def step(self, forces=None):

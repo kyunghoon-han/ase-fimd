@@ -607,7 +607,16 @@ print(dyn.get_modal_energy_breakdown()) # per-mode kinetic/potential/harmonic + 
   can desync VMD's parser; use `extxyz` only with ASE/OVITO.
 - **MACE seems noisy in low-frequency bands.** Keep `--precision float64`. MACE's
   float32 mode is faster but its force noise lands in exactly the soft modes FIMD
-  targets.
+  targets. The same applies to SO3LR, whose ASE calculator defaults to float32:
+  in full-band NVE this heats liquid water by about 1 eV/ps.
+- **Full band (up to O–H stretches) loses energy.** The harmonic split
+  dissipates on a plateau until Ω_max·dt ≲ 0.05; for water that means
+  dt ≈ 0.03 fs. Truncated bands tolerate much larger steps. See
+  [`examples/water_so3lr/`](examples/water_so3lr/README.md).
+- **Thermal-snapshot (non-minimum) reference with imaginary modes.** Pass
+  `allow_imaginary=True` to `FIMDynamics` to propagate zero-ω modes as free
+  drift, and drop the reference force (use the true force) unless the reference
+  has been minimised within the band.
 - **Conserved but unphysical dynamics.** You're probably using a calculator on an
   inappropriate system (e.g. `emt` on a molecule). See
   [Choosing a proper test system](#choosing-a-proper-test-system).
