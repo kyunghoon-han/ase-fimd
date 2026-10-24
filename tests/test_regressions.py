@@ -47,6 +47,25 @@ def test_fimdynamics_guards_zero_frequency_active_mode(lj_reference, lj_trajecto
         FIMDynamics(atoms, basis=basis, timestep_fs=1.0)
 
 
+def test_allow_imaginary_activates_zero_frequency_modes(lj_reference, lj_trajectory):
+    """allow_imaginary=True opts zero-frequency modes in as free drift instead of raising."""
+    basis = FIMDBasis.from_trajectory(
+        trajectory=lj_trajectory, reference=lj_reference, calculator=make_lj(),
+        band=(0.0, 400.0), timestep_reference=2.0, verbose=False,
+        max_initial_displacement=0.2,
+    )
+    idx = np.argmin(np.abs(basis.omega))
+    basis.omega[idx] = 0.0
+    basis.band_mask[idx] = False
+
+    atoms = lj_trajectory[-1].copy()
+    atoms.calc = make_lj()
+    dyn = FIMDynamics(atoms, basis=basis, timestep_fs=1.0, allow_imaginary=True)
+    assert dyn.band_mask[idx]
+    dyn.run(5)
+    assert np.all(np.isfinite(atoms.get_positions()))
+
+
 # --------------------------------------------------------------------------- #
 # Step counter: FIMDynamics.nsteps must advance by exactly 1 per step.
 # Bug: step() incremented nsteps on top of ASE's base class -> +2 per step,
